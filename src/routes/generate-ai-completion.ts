@@ -1,14 +1,20 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { pipeDataStreamToResponse, streamText } from "ai";
 import { PrismaClient } from "@prisma/client";
-import { OpenAI } from "openai";
+import { createOpenAI } from "@ai-sdk/openai";
+
+// Configuração do OpenAI usando a variável de ambiente para a API Key
+const openai = createOpenAI({
+  apiKey: process.env.OPENAI_KEY, // Puxa a API Key do arquivo .env
+  compatibility: "strict", // Modo estrito para maior compatibilidade
+});
 
 const prisma = new PrismaClient();
-const openai = new OpenAI({ apiKey: process.env.OPENAI_KEY });
 
 export async function generateAICompletionRoute(app: FastifyInstance) {
   app.post('/ai/complete', async (request, reply) => {
-    // Validate request body
+    // Validação do corpo da requisição
     const bodySchema = z.object({
       prompt: z.string(),
     });
@@ -16,7 +22,7 @@ export async function generateAICompletionRoute(app: FastifyInstance) {
     const { prompt } = bodySchema.parse(request.body);
 
     try {
-      // Fetch transactions from the Prisma database
+      // Busca transações do banco de dados usando Prisma
       const transactions = await prisma.transacao.findMany({
         select: {
           id: true,
@@ -27,40 +33,37 @@ export async function generateAICompletionRoute(app: FastifyInstance) {
         },
       });
 
-      // Convert transactions to a formatted string
+      // Converte transações para uma string formatada
       const dataString = transactions
         .map((transaction) => `Name: ${transaction.name}, Value: ${transaction.value}, Type: ${transaction.type}`)
         .join("\n");
 
-      // Replace {dados} in the prompt with the transaction data
+      // Substitui {dados} no prompt com os dados das transações
       const promptMessage = prompt.replace("{dados}", dataString);
 
-      // Generate AI response using OpenAI's streaming API
-      const responseStream = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "user", content: promptMessage }
-        ],
-        stream: true, // Enable streaming
+      // Faz o streaming da resposta da OpenAI
+      const result = streamText({
+        model: openai("gpt-4o-mini"),
+        prompt: promptMessage,
       });
 
-      // Set up response headers for streaming
-      reply.raw.setHeader("Content-Type", "text/plain");
-      reply.raw.setHeader("Transfer-Encoding", "chunked");
-      reply.raw.setHeader("Access-Control-Allow-Origin", "*");
-      reply.raw.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-
-      // Stream the AI response to the client
-      reply.raw.writeHead(200);
-
-      for await (const chunk of responseStream) {
-        const content = chunk.choices?.[0]?.delta?.content;
-        if (content) {
-          reply.raw.write(content); // Write each chunk to the response
-        }
-      }
-
-      reply.raw.end(); // End the response stream
+      // Stream da resposta para o cliente
+      pipeDataStreamToResponse(reply.raw, {
+        execute: async (dataStreamWriter) => {
+          dataStreamWriter.writeData("Starting AI response streaming...");
+          await result.mergeIntoDataStream(dataStreamWriter);
+        },
+        onError: (error) => {
+          console.error("Error during streaming:", error);
+          return error instanceof Error ? error.message : String(error);
+        },
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+          "Content-Type": "text/plain",
+          "Transfer-Encoding": "chunked",
+        },
+      });
     } catch (error) {
       console.error("Error generating AI completion:", error);
       reply.status(500).send({ error: "An error occurred while processing your request." });
