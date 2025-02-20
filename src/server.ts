@@ -1,6 +1,7 @@
 import fastify from 'fastify';
 import fastifyCors from '@fastify/cors'; // Import Fastify CORS plugin
-import { transactionController } from './controllers/transactionController'; // Ajuste o caminho conforme necessário
+import { transactionController } from './controllers/transactionController';
+import { subscriptionController } from './controllers/subscriptionController';
 import { generateAICompletionRoute } from '@routes/generate-ai-completion';
 
 const app = fastify({ logger: true });
@@ -14,6 +15,7 @@ async function main() {
 
   // Register the controller
   app.register(transactionController);
+  app.register(subscriptionController);
   app.register(generateAICompletionRoute);
 
   // Start the server

@@ -13,8 +13,24 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model Assinatura {
+  id        String   @id @default(uuid()) @map("_id")
+  name      String
+  category  String
+  day       Int
+  month     Int? // Mês de cobrança (1-12), usado para anuais
+  value     Float
+  frequency String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs LogProcessamento[] // Relacionamento com a tabela de logs
+
+  @@map("assinaturas")
+}
+
 model Transacao {
-  id          String    @id @default(uuid()) @map("_id")
+  id          String   @id @default(uuid()) @map("_id")
   value       Float
   name        String
   category    String
@@ -23,4 +39,14 @@ model Transacao {
   type        String // "entrada" or "saida"
 
   @@map("transacoes")
+}
+
+model LogProcessamento {
+  id           String   @id @default(uuid()) @map("_id")
+  assinaturaId String
+  processadoEm DateTime @default(now())
+
+  assinatura Assinatura @relation(fields: [assinaturaId], references: [id])
+
+  @@map("logs_processamento")
 }
